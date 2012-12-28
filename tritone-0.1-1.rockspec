@@ -10,7 +10,7 @@ description = {
   detailed = [[
     Simple Lua web framework
   ]],
-  homepage = "https://github.com/armatys/tritone",
+  homepage = "http://armatys.github.com/tritone",
   license = "MIT/X11"
 }
 
