@@ -28,6 +28,8 @@ The framework is not finished and the only way to test it is by fetching the sou
 * perun https://bitbucket.org/armatys/perun
 * lastly, get the tritone framework:
 
-    git clone git://github.com/armatys/tritone.git
-    cd tritone
-    sudo luarocks make
+```sh
+git clone git://github.com/armatys/tritone.git
+cd tritone
+sudo luarocks make
+```
