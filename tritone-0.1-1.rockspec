@@ -16,6 +16,7 @@ description = {
 
 dependencies = {
   "lua >= 5.1",
+  "getopt >= 0.1",
   "perun >= 0.1",
   "pbkdf2 >= 0.1"
 }
