@@ -16,9 +16,12 @@ description = {
 
 dependencies = {
   "lua >= 5.1",
-  "getopt >= 0.1",
+  "anet >= 1.0",
+  --"getopt >= 0.1",
   "perun >= 0.1",
-  "pbkdf2 >= 0.1"
+  --"pbkdf2 >= 0.1",
+  --"30log >= 0.2",
+  "hyperparser >= 1.0"
 }
 
 supported_platforms = { "macosx", "freebsd", "linux" }
