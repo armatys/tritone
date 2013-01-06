@@ -8,9 +8,13 @@ local function hello(headers, body, cookies, files, request, templates, db)
   -- request: http version, path, query params, '#' part
 end
 
-local hello = tritone.handler{'body', 'cookies', 'db', 'request'}(function()
+local hello = tritone.handler{'body', 'cookies', 'db', 'request'}(function(name)
   -- now all the requested services are in function's environment
 end)
+
+local ello = tritone.Handler:new(function(name)
+  -- body
+end, cookies, request) -- could those values be recognized based on tritone.handler env?
 
 -- the functions for each service should return an object
 -- that would be used in each lua state
@@ -28,7 +32,7 @@ server:services {
 }
 
 server:urls {
-  { '/hello', hello }
+  { '/hello/{:name %w+ :}', hello }
 }
 
 server:serve('localhost', 8080)
