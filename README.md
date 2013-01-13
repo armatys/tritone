@@ -18,6 +18,9 @@ Lua web framework
 - http keep-alive support
 - big file uploads (streaming to disk)
 - auto-restart on errors
+- code reload on demand or automatically (e.g. in dev mode)
+- logging
+- modes: production, test, development
 
 ### Installation
 

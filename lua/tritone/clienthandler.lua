@@ -3,6 +3,7 @@ local hyperparser = require 'hyperparser'
 local perun = require 'perun'
 local string = require 'string'
 
+local error = error
 local print = print
 
 local _M = {}
@@ -13,44 +14,53 @@ local response = "HTTP/1.1 200 OK\r\nContent-Length: 14\r\nConnection: close\r\n
 local function write_response(cfd)
   local written, errmsg, errcode = anet.writeall(cfd, response, i)
   if not written then
-    print("Write error", errmsg)
+    error("Cannot write to the socket: " .. errmsg)
   end
-  anet.close(cfd)
 end
 
 local function clienthandler(config, cfd, ip, port)
   local state = nil
   local shouldRead = true
 
-  local settings = {
+  local request = hyperparser.request{
+    msgbegin = nil,
+    statuscomplete = nil,
+    headerscomplete = nil,
+    url = function(url)
+      local uparser = hyperparser.parseurl(url)
+      print(uparser:schema(), uparser:host(), uparser:port(), uparser:path(), uparser:query(), uparser:fragment(), uparser:userinfo())
+    end,
+    headerfield = nil, -- 
+    headervalue = nil, --
+    body = nil, --
     msgcomplete = function()
       shouldRead = false
       state = 'complete'
     end
   }
-  local request = hyperparser.request(settings)
 
   while shouldRead do
     local nread, content, errcode = anet.read(cfd)
 
     if not nread then
-      anet.close(cfd)
-      break
+      error('Cannot read from the socket: ' .. content)
     elseif nread > 0 then
       local nparsed = request:execute(content)
       if nparsed ~= nread then
-        anet.close(cfd)
-        break
+        error('Cannot parse the request.')
       end
-    else
-      anet.close(cfd)
+    else -- EOF
       break
     end
   end
 
   if state == 'complete' then
-    -- can execute handler
     write_response(cfd)
+    if not request:shouldkeepalive() then
+      anet.close(cfd)
+    end
+  else
+    anet.close(cfd)
   end
 end
 
@@ -58,7 +68,15 @@ function loop(fd, config)
   while true do
     local cfd, ip, port = anet.accept(fd)
     if cfd then
-      perun.spawn(clienthandler, config, cfd, ip, port)
+      perun.spawn(function()
+        perun.defer(function(ok)
+          if not ok then
+            -- Close the client fd only if the handler did not finish cleanly.
+            perun.c.close(cfd)
+          end
+        end)
+        clienthandler(config, cfd, ip, port)
+      end)
     end
   end
 end
