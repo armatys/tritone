@@ -40,7 +40,7 @@ function Builder:__add(other)
 
   if otherType == 'table' and other._builder then
     for k, v in pairs(other._methods) do
-      self._methods[k] = true
+      self._methods[string.lower(k)] = true
     end
   elseif otherType == 'table' then
     -- save services
@@ -110,8 +110,8 @@ end
 
 HttpServer = {}
 
-function HttpServer:new()
-  local o = {}
+function HttpServer:new(tmpl)
+  local o = tmpl or {}
   o._configtable = {}
   o._errorstragety = ErrorStrategy.Retry
   o._fd = 0 -- server listening socket
@@ -157,6 +157,9 @@ function HttpServer:_wait()
         error(errmsg)
       elseif self._errorstragety == ErrorStrategy.Retry then
         -- the error could be logged anyway (e.g. through zmq)
+        if self.debug then
+          print(errmsg)
+        end
         local now = os.time()
         local d = now - lastDispatchTime
         lastDispatchTime = now
@@ -171,7 +174,9 @@ function HttpServer:_wait()
 end
 
 function HttpServer:services(servicesDict)
-  self._userservices = servicesDict
+  for k, v in pairs(servicesDict) do
+    self._userservices[k] = string.dump(v)
+  end
 end
 
 function HttpServer:serve(host, port)

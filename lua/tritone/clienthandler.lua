@@ -25,21 +25,6 @@ local function write_response(cfd)
   end
 end
 
-local function method_matches(parsedmethod, usermethods)
-  if not usermethods then
-    -- If the user did not specify supported method, just return true.
-    return true
-  end
-
-  for _, v in ipairs(usermethods) do
-    if v == parsedmethod then
-      return true
-    end
-  end
-
-  return false
-end
-
 local function compilePatterns(configtable)
   for _, v in ipairs(configtable) do
     local p = re.compile(v.pattern)
@@ -98,9 +83,9 @@ local function clienthandler(configtable, userservices, cfd, ip, port)
       end
 
       if captures then
-        if method_matches(method, config.methods) then
+        if config.methods[method] then
           -- determine if headers, cookies or body need to be parsed/stored
-          local requiredServices = config.handler._services
+          local requiredServices = config.services
           shouldKeepHeaders = requiredServices['headers'] or requiredServices['cookies']
           shouldParseQuery = requiredServices['request']
         else
@@ -159,7 +144,6 @@ local function clienthandler(configtable, userservices, cfd, ip, port)
   end
 
   -- TODO split the method here
-
   if state == 'complete' then
     -- TODO create a handler function
     -- by setting a proper func env
