@@ -112,8 +112,6 @@ HttpServer = {}
 
 function HttpServer:new()
   local o = {}
-  setmetatable(o, self)
-  self.__index = self
   o._configtable = {}
   o._errorstragety = ErrorStrategy.Retry
   o._fd = 0 -- server listening socket
@@ -121,6 +119,8 @@ function HttpServer:new()
   o._userservices = {}
   o._workercount = 1
   o._workerfutures = {}
+  self.__index = self
+  setmetatable(o, self)
   return o
 end
 
