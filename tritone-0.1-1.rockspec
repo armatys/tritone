@@ -30,5 +30,8 @@ build = {
 
   modules = {
     tritone = "lua/tritone/init.lua",
+    ["tritone.http"] = "lua/tritone/http/init.lua",
+    ["tritone.http.Response"] = "lua/tritone/http/response/init.lua",
+    ["tritone.http.Cookie"] = "lua/tritone/http/cookie/init.lua",
   }
 }

@@ -1,4 +1,6 @@
 local anet = require 'anet'
+local Cookie = require 'tritone.http.Cookie'
+local http = require 'tritone.http'
 local hyperparser = require 'hyperparser'
 local lpeg = require 'lpeg'
 local perun = require 'perun'
@@ -8,18 +10,37 @@ local table = require 'table'
 
 local error = error
 local ipairs = ipairs
-local type = type
+local loadstring = loadstring
 local print = print
+local type = type
+local unpack = unpack
 
 local _M = {}
 setfenv(1, _M)
 
 local cookiePatt = lpeg.S'Cc' * lpeg.P'ookie'
 
-local response = "HTTP/1.1 200 OK\r\nContent-Length: 14\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\nHello world!\r\n"
+local function write_response(cfd, response)
+  local buf = {
+    'HTTP/1.1 200 OK\r\n',
+    'Content-Length: ', #response, '\r\n',
+    'Connection: close\r\nContent-Type: text/plain\r\n\r\n', response}
+  local r = table.concat(buf, '')
+  local written, errmsg, errcode = anet.writeall(cfd, r)
+  if not written then
+    error("Cannot write to the socket: " .. errmsg)
+  end
+end
 
-local function write_response(cfd)
-  local written, errmsg, errcode = anet.writeall(cfd, response, i)
+local function write_code_response(cfd, code, msg)
+  local status = http.StatusLine[code] or ''
+  msg = (msg or status) .. '\n'
+  local buf = {
+    'HTTP/1.1 ', code, ' ', status, '\r\n',
+    'Content-Length: ', #msg, '\r\n',
+    'Connection: close\r\nContent-Type: text/plain\r\n\r\n', msg}
+  local r = table.concat(buf, '')
+  local written, errmsg, errcode = anet.writeall(cfd, r)
   if not written then
     error("Cannot write to the socket: " .. errmsg)
   end
@@ -52,6 +73,7 @@ local function clienthandler(configtable, userservices, cfd, ip, port)
   local shouldKeepBody = false -- 'body'
   local shouldParseBody = false -- 'jsonform' (application/json), 'files' (multipart/form-data), 'form' (application/x-www-form-urlencoded)
 
+  local cookies = {}
   local headers = {}
   local body = nil
 
@@ -102,8 +124,11 @@ local function clienthandler(configtable, userservices, cfd, ip, port)
       if #headerfieldbuf > 0 then
         local key = table.concat(headerfieldbuf, '')
         local val = table.concat(headervaluebuf, '')
-        if shouldKeepHeaders or cookiePatt:match(key) then
+        if shouldKeepHeaders then
           putHeader(key, val)
+        end
+        if cookiePatt:match(key) then
+          http.parseCookieHeader(val, cookies)
         end
         headerfieldbuf = {}
         headervaluebuf = {}
@@ -136,7 +161,8 @@ local function clienthandler(configtable, userservices, cfd, ip, port)
       if request:isupgrade() then
         error('Not implemented') -- TODO
       elseif nparsed ~= nread then
-        error('Cannot parse the request.')
+        body = 'Cannot parse the request.'
+        stopReading(500)
       end
     else -- EOF
       break
@@ -149,12 +175,14 @@ local function clienthandler(configtable, userservices, cfd, ip, port)
     -- by setting a proper func env
     -- then run the handler for as long as it returns true?
     -- run the function using pcall? and return 500 in case of error?
-    write_response(cfd)
+    local clb = loadstring(config.handler)
+    local response = clb(unpack(captures or {}))
+    write_response(cfd, response)
     if not request:shouldkeepalive() then
       anet.close(cfd)
     end
   elseif type(state) == 'number' then
-    -- TODO write the response with state as error code
+    write_code_response(cfd, state, body)
     anet.close(cfd)
   else
     anet.close(cfd)

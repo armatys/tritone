@@ -1,4 +1,3 @@
-local pstring = require "perun.lang.string"
 local string = require "string"
 local table = require "table"
 local ipairs = ipairs
@@ -9,7 +8,7 @@ local type = type
 local _M = {}
 setfenv(1, _M)
 
-local StatusLine = {
+StatusLine = {
   [100] = "Continue",
   [101] = "Switching Protocols",
   [200] = "OK",
@@ -51,6 +50,13 @@ local StatusLine = {
   [504] = "Gateway Timeout",
   [505] = "HTTP Version Not Supported"
 }
+
+local function escapeMagicChars(s)
+  local magic = "[%^%$%(%)%%%.%[%]%*%+%-%?]"
+  return string.gsub(s, magic, function(cap)
+    return "%" .. cap
+  end)
+end
 
 --- Dumps a table with headers into a string.
 -- Since an HTTP request or response can contain
@@ -97,9 +103,9 @@ function urlEncode(str)
   return str  
 end
 
-function parseCookieHeader(data)
-  local cookies = {}
+function parseCookieHeader(data, cookies)
   local regexp = '^([^=]+)="?([^";]*)"?;?%s?(.*)$'
+  cookies = cookies or {}
 
   while true do
     local name, value, rest = string.match(data, regexp)

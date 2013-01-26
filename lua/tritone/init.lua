@@ -156,7 +156,6 @@ function HttpServer:_wait()
       if self._errorstragety == ErrorStrategy.Fail then
         error(errmsg)
       elseif self._errorstragety == ErrorStrategy.Retry then
-        -- the error could be logged anyway (e.g. through zmq)
         if self.debug then
           print(errmsg)
         end
