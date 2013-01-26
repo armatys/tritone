@@ -28,7 +28,10 @@ The framework is not finished and the only way to test it is by fetching the sou
 
 * luagetopt https://bitbucket.org/armatys/luagetopt
 * luapbkdf2 https://bitbucket.org/armatys/luapbkdf2
+* fundamento https://bitbucket.org/armatys/fundamento
 * perun https://bitbucket.org/armatys/perun
+* hyperparser https://github.com/armatys/hyperparser
+* anet https://github.com/armatys/LuaAnet
 * lastly, get the tritone framework:
 
 ```sh

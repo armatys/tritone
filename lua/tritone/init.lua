@@ -1,5 +1,4 @@
 local anet = require 'anet'
-local class = require '30log'
 local debug = require 'debug'
 local os = require 'os'
 local perun = require 'perun'
@@ -9,6 +8,7 @@ local table = require 'table'
 local error = error
 local ipairs = ipairs
 local loadstring = loadstring
+local pairs = pairs
 local setmetatable = setmetatable
 local type = type
 local print = print
@@ -33,31 +33,95 @@ end
 
 ErrorStrategy = enum {'Fail', 'Retry'}
 
-Handler = class {
-  _fn = nil,
-  _services = {}
-}
+local Builder = {}
 
-function Handler:__init(services, fn)
-  self._fn = string.dump(fn)
-  self._services = {}
-  for _, service in ipairs(services) do
-    self._services[service] = true
+function Builder:__add(other)
+  local otherType = type(other)
+
+  if otherType == 'table' and other._builder then
+    for k, v in pairs(other._methods) do
+      self._methods[k] = true
+    end
+  elseif otherType == 'table' then
+    -- save services
+    for _, v in ipairs(other) do
+      table.insert(self._services, v)
+    end
+  elseif otherType == 'string' then
+    -- save url pattern
+    self._pattern = other
+  else
+    error('Invalid argument (add)', 2)
+  end
+
+  return self
+end
+
+function Builder:__index(k)
+  self._methods[k] = true
+  return self
+end
+
+function Builder:__newindex(k, v)
+  if type(k) == 'table' and k._builder then
+    -- freeze and store in server
+    self._server:_setroute(k, v)
+  else
+    error('Invalid argument (newindex)', 2)
   end
 end
 
-HttpServer = class {
-  _configtable = {},
-  _errorstragety = ErrorStrategy.Retry,
-  _fd = 0, -- server listening socket
-  _isrunning = false,
-  _userservices = {},
-  _workercount = 1,
-  _workerfutures = {}
-}
+function Builder:__sub(other)
+  if type(other) == 'string' then
+    self._name = other
+  else
+    error('Invalid argument (substraction)', 2)
+  end
+  return self
+end
 
-function HttpServer:__init()
-  -- body
+function Builder:__tostring()
+  local buf = {'<Builder: M('}
+  for k, _ in pairs(self._methods) do
+    table.insert(buf, k)
+  end
+  table.insert(buf, ')')
+
+  if #self._pattern > 0 then
+    table.insert(buf, 'PATTERN:')
+    table.insert(buf, self._pattern)
+  end
+
+  table.insert(buf, '>')
+  return table.concat(buf, ' ')
+end
+
+function Builder:new(server)
+  local o = {}
+  o._builder = true
+  o._methods = {}
+  o._name = ''
+  o._pattern = ''
+  o._services = {}
+  o._server = server
+  setmetatable(o, self)
+  return o
+end
+
+HttpServer = {}
+
+function HttpServer:new()
+  local o = {}
+  setmetatable(o, self)
+  self.__index = self
+  o._configtable = {}
+  o._errorstragety = ErrorStrategy.Retry
+  o._fd = 0 -- server listening socket
+  o._isrunning = false
+  o._userservices = {}
+  o._workercount = 1
+  o._workerfutures = {}
+  return o
 end
 
 function HttpServer:_dispatchMissingWorkers()
@@ -111,6 +175,10 @@ function HttpServer:services(servicesDict)
 end
 
 function HttpServer:serve(host, port)
+  if #self._configtable == 0 then
+    error('No routes were defined.', 2)
+  end
+
   local fd, errmsg, errcode = anet.tcpserver(port or 8080, host or '127.0.0.1')
   if not fd then
     return false, errmsg
@@ -130,26 +198,22 @@ function HttpServer:serve(host, port)
   perun.main()
 end
 
-function HttpServer:urls(t)
-  for _, config in ipairs(t) do
-    local urlpatt, handler = config[1], config[2]
-
-    if not (urlpatt and handler) then
-      error('URL pattern or handler not specified.')
-    end
-
-    local methods = t.method or t.methods
-    if type(methods) == 'string' then
-      methods = { methods }
-    end
-
-    table.insert(self._configtable, {
-      pattern = urlpatt,
-      handler = handler,
-      name = config.name,
-      methods = methods
-    })
+function HttpServer:_setroute(builder, handler)
+  if not (builder._pattern and handler) then
+    error('URL pattern or handler not specified.')
   end
+
+  table.insert(self._configtable, {
+      pattern = builder._pattern,
+      handler = string.dump(handler),
+      name = builder._name,
+      methods = builder._methods,
+      services = builder._services
+    })
+end
+
+function HttpServer:builder()
+  return Builder:new(self)
 end
 
 return _M
