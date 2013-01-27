@@ -11,7 +11,7 @@ local loadstring = loadstring
 local pairs = pairs
 local setmetatable = setmetatable
 local type = type
-local print = print
+local log = print
 
 local _M = {}
 setfenv(1, _M)
@@ -132,14 +132,34 @@ function HttpServer:_dispatchMissingWorkers()
 end
 
 function HttpServer:_dispatchWorker()
-  local f = perun.future(function(fd, config)
+  local f = perun.future(function(fd, config, userservices)
     local perun = require 'perun'
     local clienthandler = require 'tritone.clienthandler'
-    perun.spawn(clienthandler.loop, fd, config)
+    perun.spawn(clienthandler.loop, fd, config, userservices)
     perun.main()
   end, self._fd, self._configtable, self._userservices)
 
   table.insert(self._workerfutures, f)
+end
+
+function HttpServer:_setroute(builder, handler)
+  if not (builder._pattern and handler) then
+    error('URL pattern or handler not specified.')
+  end
+
+  local requiredServices = {}
+  for _, v in ipairs(builder._services) do
+    requiredServices[v] = true
+  end
+
+  table.insert(self._configtable, {
+      debug = self.debug,
+      pattern = builder._pattern,
+      handler = string.dump(handler),
+      name = builder._name,
+      methods = builder._methods,
+      services = requiredServices
+    })
 end
 
 function HttpServer:_wait()
@@ -157,7 +177,7 @@ function HttpServer:_wait()
         error(errmsg)
       elseif self._errorstragety == ErrorStrategy.Retry then
         if self.debug then
-          print(errmsg)
+          log(errmsg)
         end
         local now = os.time()
         local d = now - lastDispatchTime
@@ -170,6 +190,10 @@ function HttpServer:_wait()
       end
     end
   end
+end
+
+function HttpServer:builder()
+  return Builder:new(self)
 end
 
 function HttpServer:services(servicesDict)
@@ -200,24 +224,6 @@ function HttpServer:serve(host, port)
 
   self._isrunning = true
   perun.main()
-end
-
-function HttpServer:_setroute(builder, handler)
-  if not (builder._pattern and handler) then
-    error('URL pattern or handler not specified.')
-  end
-
-  table.insert(self._configtable, {
-      pattern = builder._pattern,
-      handler = string.dump(handler),
-      name = builder._name,
-      methods = builder._methods,
-      services = builder._services
-    })
-end
-
-function HttpServer:builder()
-  return Builder:new(self)
 end
 
 return _M

@@ -11,7 +11,10 @@ local table = require 'table'
 local error = error
 local ipairs = ipairs
 local loadstring = loadstring
-local print = print
+local pairs = pairs
+local pcall = pcall
+local print = print -- TODO
+local setfenv = setfenv
 local type = type
 local unpack = unpack
 
@@ -20,11 +23,12 @@ setfenv(1, _M)
 
 local cookiePatt = lpeg.S'Cc' * lpeg.P'ookie'
 
-local function write_response(cfd, response)
+local function write_response(cfd, keepalive, response)
   local buf = {
     'HTTP/1.1 200 OK\r\n',
+    keepalive and 'Connection: close\r\n' or '',
     'Content-Length: ', #response, '\r\n',
-    'Connection: close\r\nContent-Type: text/plain\r\n\r\n', response}
+    'Content-Type: text/plain\r\n\r\n', response}
   local r = table.concat(buf, '')
   local written, errmsg, errcode = anet.writeall(cfd, r)
   if not written then
@@ -69,13 +73,14 @@ local function clienthandler(configtable, userservices, cfd, ip, port)
   -- Each one of the 'should*' variables corrensponds to a service (at least partly).
   local shouldKeepHeaders = false -- 'headers'
   local shouldParseCookies = false -- 'cookies'
-  local shouldParseQuery = false -- 'request'
+  local shouldParseQuery = false -- 'query'
   local shouldKeepBody = false -- 'body'
   local shouldParseBody = false -- 'jsonform' (application/json), 'files' (multipart/form-data), 'form' (application/x-www-form-urlencoded)
 
-  local cookies = {}
-  local headers = {}
+  local cookies = nil
+  local headers = nil
   local body = nil
+  local query = nil
 
   local headerfieldbuf = {}
   local headervaluebuf = {}
@@ -108,8 +113,15 @@ local function clienthandler(configtable, userservices, cfd, ip, port)
         if config.methods[method] then
           -- determine if headers, cookies or body need to be parsed/stored
           local requiredServices = config.services
-          shouldKeepHeaders = requiredServices['headers'] or requiredServices['cookies']
-          shouldParseQuery = requiredServices['request']
+          shouldKeepHeaders = requiredServices['headers']
+          shouldParseCookies = requiredServices['cookies']
+          shouldParseQuery = requiredServices['query']
+
+          if shouldKeepHeaders then headers = {} end
+          if shouldParseCookies then cookies = {} end
+          if shouldParseQuery then
+            query = http.parseUrlEncodedQuery(parsed.query)
+          end
         else
           stopReading(405)
         end
@@ -176,9 +188,25 @@ local function clienthandler(configtable, userservices, cfd, ip, port)
     -- then run the handler for as long as it returns true?
     -- run the function using pcall? and return 500 in case of error?
     local clb = loadstring(config.handler)
-    local response = clb(unpack(captures or {}))
-    write_response(cfd, response)
-    if not request:shouldkeepalive() then
+    local env = {}
+    if config.services.headers then env.headers = headers end
+    if config.services.cookies then env.cookies = cookies end
+    if config.services.query then env.query = query end
+    for k, _ in pairs(config.services) do
+      if userservices[k] then
+        env[k] = userservices[k]
+      end
+    end
+    setfenv(clb, env)
+    local ok, response = pcall(clb, unpack(captures or {}))
+    if ok then
+      local keepalive = request:shouldkeepalive()
+      write_response(cfd, keepalive, response)
+      if not keepalive then
+        anet.close(cfd)
+      end
+    else
+      write_code_response(cfd, 500, config.debug and response or nil)
       anet.close(cfd)
     end
   elseif type(state) == 'number' then
@@ -191,6 +219,12 @@ end
 
 function loop(fd, configtable, userservices)
   compilePatterns(configtable)
+  
+  local definedServices = {}
+  for k, v in pairs(userservices) do
+    definedServices[k] = loadstring(v)
+  end
+
   while true do
     local cfd, ip, port = anet.accept(fd)
     if cfd then
@@ -201,7 +235,7 @@ function loop(fd, configtable, userservices)
             perun.c.close(cfd)
           end
         end)
-        clienthandler(configtable, userservices, cfd, ip, port)
+        clienthandler(configtable, definedServices, cfd, ip, port)
       end)
     end
   end
