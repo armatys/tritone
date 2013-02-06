@@ -15,8 +15,11 @@ server:services {
 local std = on.GET + on.POST + { 'headers', 'cookies', 'query' }
 
 on [std + { 'echo' } + '"/hello/"{ %w+ }"/"?' - 'index'] = function(name)
-  -- body
-  return 'siema ' .. echo(name) .. '?' .. (query.q or '') .. '!\n'
+  -- TODO manipulating response: headers, setting cookie, status code
+  response:setheader('Content-Type', 'text/plain')
+  response:setcookie{'sid', '238a0e4f'}
+  response.body = 'siema ' .. echo(name) .. '?' .. (query.q or '') ..  '!\n'
+  return response
 end
 
 local ok, errmsg = server:serve()

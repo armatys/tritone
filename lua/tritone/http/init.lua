@@ -121,6 +121,10 @@ function parseCookieHeader(data, cookies)
 end
 
 function parseUrlEncodedQuery(data)
+  if not data then
+    return {}
+  end
+
   local params = {}
   local regexp = "^([^=]+)=([^&]*)&?(.*)$"
 

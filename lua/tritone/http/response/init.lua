@@ -1,4 +1,4 @@
-local bencode = require "perun.bencode"
+local bencode = require "bencode"
 local Cookie = require "tritone.http.cookie"
 local string = require "string"
 local table = require "table"
@@ -70,16 +70,16 @@ function M:render(template, context)
 end
 
 function M:addflash(msg)
-    local flashes = self:cookievalue("_perun.flashes") or "le"
+    local flashes = self:cookievalue("_tritone.flashes") or "le"
     if string.sub(flashes, 1, 1) ~= "l" then
         flashes = "le"
     end
-    self:setcookie("_perun.flashes", string.format("l%s%d:%se", string.sub(flashes, 2, -2), #msg, msg))
+    self:setcookie("_tritone.flashes", string.format("l%s%d:%se", string.sub(flashes, 2, -2), #msg, msg))
 end
 
 function M:queuedflashes()
     local f = {}
-    local val = self:cookievalue("_perun.flashes")
+    local val = self:cookievalue("_tritone.flashes")
 
     if val then
         f = bencode.decode(val)
@@ -89,7 +89,7 @@ function M:queuedflashes()
 end
 
 function M:delqueuedflashes()
-    local n = self:_findCookieIndex("_perun.flashes")
+    local n = self:_findCookieIndex("_tritone.flashes")
     self.headers["Set-Cookie"] = self.headers["Set-Cookie"] or {}
     self.headers["Set-Cookie"][n] = nil
 end
@@ -107,6 +107,16 @@ function M:_findCookieIndex(name)
     end
 
     return (n == 0) and #self.headers["Set-Cookie"] + 1 or n
+end
+
+function M:getbody()
+    return self.body
+end
+
+function M:clear()
+    o.body = nil
+    o.headers = {}
+    o.status = 200
 end
 
 return M

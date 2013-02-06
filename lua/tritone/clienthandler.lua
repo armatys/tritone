@@ -1,10 +1,12 @@
 local anet = require 'anet'
-local Cookie = require 'tritone.http.Cookie'
 local http = require 'tritone.http'
 local hyperparser = require 'hyperparser'
 local lpeg = require 'lpeg'
+local math = require 'math'
+local os = require 'os'
 local perun = require 'perun'
 local re = require 're'
+local Response = require 'tritone.http.response'
 local string = require 'string'
 local table = require 'table'
 
@@ -13,14 +15,17 @@ local ipairs = ipairs
 local loadstring = loadstring
 local pairs = pairs
 local pcall = pcall
-local print = print -- TODO
+local print = print -- TODO remove that later
 local setfenv = setfenv
 local type = type
 local unpack = unpack
 
+local globals = _G
+
 local _M = {}
 setfenv(1, _M)
 
+local isTerminating = false
 local cookiePatt = lpeg.S'Cc' * lpeg.P'ookie'
 
 local function keepaliveHeader(httpver, keepalive)
@@ -35,11 +40,14 @@ local function keepaliveHeader(httpver, keepalive)
 end
 
 local function write_response(cfd, httpver, keepalive, response)
+  local statusText = http.StatusLine[response.status] or ''
+  local headers = http.dumpHeaders(response.headers)
+  local body = response:getbody() or ''
   local buf = {
-    'HTTP/1.1 200 OK\r\n',
+    'HTTP/', httpver, ' ', response.status, ' ', statusText, '\r\n',
     keepaliveHeader(httpver, keepalive),
-    'Content-Length: ', #response, '\r\n',
-    'Content-Type: text/plain\r\n\r\n', response}
+    'Content-Length: ', #body, '\r\n',
+    headers, '\r\n', body}
   local r = table.concat(buf, '')
   local written, errmsg, errcode = anet.writeall(cfd, r)
   if not written then
@@ -48,10 +56,10 @@ local function write_response(cfd, httpver, keepalive, response)
 end
 
 local function write_code_response(cfd, httpver, code, msg)
-  local status = http.StatusLine[code] or ''
-  msg = (msg or status) .. '\n'
+  local statusText = http.StatusLine[code] or ''
+  msg = (msg or statusText) .. '\n'
   local buf = {
-    'HTTP/', httpver, ' ', code, ' ', status, '\r\n',
+    'HTTP/', httpver, ' ', code, ' ', statusText, '\r\n',
     'Content-Length: ', #msg, '\r\n',
     'Connection: close\r\nContent-Type: text/plain\r\n\r\n', msg}
   local r = table.concat(buf, '')
@@ -68,7 +76,15 @@ local function compilePatterns(configtable)
   end
 end
 
-local function clienthandler(configtable, userservices, cfd, ip, port)
+local function copyGlobals()
+  local t = {}
+  for k, v in pairs(globals) do
+    t[k] = v
+  end
+  return t
+end
+
+local function _clienthandler(configtable, userservices, cfd, ip, port)
   local state = nil
   local shouldRead = true -- Determines if we should read from the client socket.
 
@@ -112,7 +128,6 @@ local function clienthandler(configtable, userservices, cfd, ip, port)
       if not shouldRead then return end
 
       method = request:method()
-      httpver = request:httpmajor() .. '.' .. request:httpminor()
 
       local parsed = hyperparser.parseurl(url)
       for _, v in ipairs(configtable) do
@@ -133,7 +148,7 @@ local function clienthandler(configtable, userservices, cfd, ip, port)
 
           if shouldKeepHeaders then headers = {} end
           if shouldParseCookies then cookies = {} end
-          if shouldParseQuery and parsed.query then
+          if shouldParseQuery then
             query = http.parseUrlEncodedQuery(parsed.query)
           end
         else
@@ -153,8 +168,9 @@ local function clienthandler(configtable, userservices, cfd, ip, port)
         if shouldKeepHeaders then
           putHeader(key, val)
         end
+
         if cookiePatt:match(key) then
-          http.parseCookieHeader(val, cookies)
+          cookies = http.parseCookieHeader(val, cookies)
         end
         headerfieldbuf = {}
         headervaluebuf = {}
@@ -197,12 +213,14 @@ local function clienthandler(configtable, userservices, cfd, ip, port)
 
   -- TODO split the method here
   if state == 'complete' then
+    httpver = request:httpmajor() .. '.' .. request:httpminor()
     -- TODO create a handler function
     -- by setting a proper func env
     -- then run the handler for as long as it returns true?
     -- run the function using pcall? and return 500 in case of error?
     local clb = loadstring(config.handler)
-    local env = {}
+    local env = copyGlobals()
+    env.response = Response:new()
     if config.services.headers then env.headers = headers end
     if config.services.cookies then env.cookies = cookies end
     if config.services.query then env.query = query end
@@ -214,24 +232,32 @@ local function clienthandler(configtable, userservices, cfd, ip, port)
     setfenv(clb, env)
     local ok, response = pcall(clb, unpack(captures or {}))
     if ok then
-      local keepalive = request:shouldkeepalive()
+      local keepalive = request:shouldkeepalive() and (not isTerminating)
       write_response(cfd, httpver, keepalive, response)
-      if not keepalive then
-        anet.close(cfd)
+      if keepalive then
+        return true
       end
     else
       write_code_response(cfd, httpver, 500, config.debug and response or nil)
-      anet.close(cfd)
     end
   elseif type(state) == 'number' then
     write_code_response(cfd, httpver, state, body)
-    anet.close(cfd)
-  else
-    anet.close(cfd)
   end
+
+  anet.close(cfd)
+  return false
+end
+
+local function clienthandler(configtable, userservices, cfd, ip, port)
+  while _clienthandler(configtable, userservices, cfd, ip, port) do end
 end
 
 function loop(fd, configtable, userservices)
+  math.randomseed(os.time())
+  -- After this number of requests, finish serving.
+  -- That will release the memory of the worker thread.
+  local maxServedRequestCount = 10000 + math.random(0, 10000)
+  local currentServedRequestCount = 0
   compilePatterns(configtable)
   
   local definedServices = {}
@@ -239,7 +265,7 @@ function loop(fd, configtable, userservices)
     definedServices[k] = loadstring(v)
   end
 
-  while true do
+  while not isTerminating do
     local cfd, ip, port = anet.accept(fd)
     if cfd then
       perun.spawn(function()
@@ -252,7 +278,14 @@ function loop(fd, configtable, userservices)
         clienthandler(configtable, definedServices, cfd, ip, port)
       end)
     end
+
+    currentServedRequestCount = currentServedRequestCount + 1
+    if currentServedRequestCount >= maxServedRequestCount then
+      isTerminating = true
+    end
   end
+
+  perun.stop()
 end
 
 return _M
