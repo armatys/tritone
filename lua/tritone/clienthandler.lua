@@ -23,10 +23,21 @@ setfenv(1, _M)
 
 local cookiePatt = lpeg.S'Cc' * lpeg.P'ookie'
 
-local function write_response(cfd, keepalive, response)
+local function keepaliveHeader(httpver, keepalive)
+  if keepalive and httpver == '1.1' then
+    return ''
+  elseif keepalive and httpver == '1.0' then
+    return 'Connection: Keep-Alive'
+  elseif not keepalive then
+    return 'Connection: Close'
+  end
+  return ''
+end
+
+local function write_response(cfd, httpver, keepalive, response)
   local buf = {
     'HTTP/1.1 200 OK\r\n',
-    keepalive and 'Connection: close\r\n' or '',
+    keepaliveHeader(httpver, keepalive),
     'Content-Length: ', #response, '\r\n',
     'Content-Type: text/plain\r\n\r\n', response}
   local r = table.concat(buf, '')
@@ -36,11 +47,11 @@ local function write_response(cfd, keepalive, response)
   end
 end
 
-local function write_code_response(cfd, code, msg)
+local function write_code_response(cfd, httpver, code, msg)
   local status = http.StatusLine[code] or ''
   msg = (msg or status) .. '\n'
   local buf = {
-    'HTTP/1.1 ', code, ' ', status, '\r\n',
+    'HTTP/', httpver, ' ', code, ' ', status, '\r\n',
     'Content-Length: ', #msg, '\r\n',
     'Connection: close\r\nContent-Type: text/plain\r\n\r\n', msg}
   local r = table.concat(buf, '')
@@ -92,6 +103,7 @@ local function clienthandler(configtable, userservices, cfd, ip, port)
   end
 
   local request = hyperparser.request()
+  local httpver = '1.1'
   local parsersettings = {
     msgbegin = nil,
     statuscomplete = nil,
@@ -99,8 +111,10 @@ local function clienthandler(configtable, userservices, cfd, ip, port)
     url = function(url)
       if not shouldRead then return end
 
-      local parsed = hyperparser.parseurl(url)
       method = request:method()
+      httpver = request:httpmajor() .. '.' .. request:httpminor()
+
+      local parsed = hyperparser.parseurl(url)
       for _, v in ipairs(configtable) do
         captures = v.pattern:match(parsed.path)
         if captures then
@@ -119,7 +133,7 @@ local function clienthandler(configtable, userservices, cfd, ip, port)
 
           if shouldKeepHeaders then headers = {} end
           if shouldParseCookies then cookies = {} end
-          if shouldParseQuery then
+          if shouldParseQuery and parsed.query then
             query = http.parseUrlEncodedQuery(parsed.query)
           end
         else
@@ -171,7 +185,7 @@ local function clienthandler(configtable, userservices, cfd, ip, port)
     elseif nread > 0 then
       local nparsed = request:execute(content, parsersettings)
       if request:isupgrade() then
-        error('Not implemented') -- TODO
+        stopReading(501)
       elseif nparsed ~= nread then
         body = 'Cannot parse the request.'
         stopReading(500)
@@ -201,16 +215,16 @@ local function clienthandler(configtable, userservices, cfd, ip, port)
     local ok, response = pcall(clb, unpack(captures or {}))
     if ok then
       local keepalive = request:shouldkeepalive()
-      write_response(cfd, keepalive, response)
+      write_response(cfd, httpver, keepalive, response)
       if not keepalive then
         anet.close(cfd)
       end
     else
-      write_code_response(cfd, 500, config.debug and response or nil)
+      write_code_response(cfd, httpver, 500, config.debug and response or nil)
       anet.close(cfd)
     end
   elseif type(state) == 'number' then
-    write_code_response(cfd, state, body)
+    write_code_response(cfd, httpver, state, body)
     anet.close(cfd)
   else
     anet.close(cfd)
