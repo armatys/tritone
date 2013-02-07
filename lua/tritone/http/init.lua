@@ -143,6 +143,7 @@ function parseUrlEncodedQuery(data)
 end
 
 function getMultipartDataBoundary(contentTypeHeader)
+  if not contentTypeHeader then return nil end
   local boundary = string.match(contentTypeHeader, "[;%s]boundary=([^\r\n;]+)")
   return boundary or nil
 end

@@ -25,6 +25,11 @@ local globals = _G
 local _M = {}
 setfenv(1, _M)
 
+math.randomseed(os.time())
+-- After this number of requests, finish serving.
+-- That will release the memory of the worker thread.
+local maxServedRequestCount = 10000 + math.random(0, 10000)
+local currentServedRequestCount = 0
 local isTerminating = false
 local cookiePatt = lpeg.S'Cc' * lpeg.P'ookie'
 
@@ -97,17 +102,20 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
   local method = nil -- parsed method name, e.g. 'GET' or 'POST'
   local config = nil -- {pattern=, handler=, name=?, methods=?}
 
-  -- Each one of the 'should*' variables corrensponds to a service (at least partly).
+  -- Each one of the 'should*' variables corrensponds to a service.
   local shouldKeepHeaders = false -- 'headers'
   local shouldParseCookies = false -- 'cookies'
   local shouldParseQuery = false -- 'query'
   local shouldKeepBody = false -- 'body'
-  local shouldParseBody = false -- 'jsonform' (application/json), 'files' (multipart/form-data), 'form' (application/x-www-form-urlencoded)
+  local shouldParseFormData = false -- 'form' application/x-www-form-urlencoded
+  local shouldParseMultipartFormData = false -- 'files' multipart/form-data
 
   local cookies = nil
   local headers = nil
   local body = nil
   local query = nil
+  local formdata = nil
+  local multipartdata = nil
 
   local headerfieldbuf = {}
   local headervaluebuf = {}
@@ -142,9 +150,11 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
         if config.methods[method] then
           -- determine if headers, cookies or body need to be parsed/stored
           local requiredServices = config.services
-          shouldKeepHeaders = requiredServices['headers']
           shouldParseCookies = requiredServices['cookies']
           shouldParseQuery = requiredServices['query']
+          shouldParseFormData = requiredServices['form']
+          shouldParseMultipartFormData = requiredServices['files']
+          shouldKeepHeaders = requiredServices['headers'] or shouldParseFormData or shouldParseMultipartFormData
 
           if shouldKeepHeaders then headers = {} end
           if shouldParseCookies then cookies = {} end
@@ -166,7 +176,7 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
         local key = table.concat(headerfieldbuf, '')
         local val = table.concat(headervaluebuf, '')
         if shouldKeepHeaders then
-          putHeader(key, val)
+          putHeader(string.lower(key), val)
         end
 
         if cookiePatt:match(key) then
@@ -189,6 +199,26 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
     msgcomplete = function()
       if not shouldRead then return end
       body = table.concat(bodybuf, '')
+      if shouldParseFormData then
+        local contentTypeMatches = string.match(contentTypeHeader, 'application/x%-www%-form%-urlencoded')
+        if contentTypeMatches then
+          formdata = http.parseUrlEncodedQuery(body)
+        end
+        if not formdata then
+          formdata = {}
+        end
+      end
+      if shouldParseMultipartFormData then
+        local contentTypeHeader = headers['content-type'] or ''
+        local contentTypeMatches = string.match(contentTypeHeader, 'multipart/form%-data')
+        local boundary = contentTypeMatches and http.getMultipartDataBoundary(contentTypeHeader)
+        if contentTypeMatches and boundary then
+          multipartdata = http.parseMultipartData(boundary, body)
+        end
+        if not multipartdata then
+          multipartdata = {}
+        end
+      end
       stopReading('complete')
     end
   }
@@ -249,15 +279,15 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
 end
 
 local function clienthandler(configtable, userservices, cfd, ip, port)
-  while _clienthandler(configtable, userservices, cfd, ip, port) do end
+  while _clienthandler(configtable, userservices, cfd, ip, port) do
+    currentServedRequestCount = currentServedRequestCount + 1
+    if currentServedRequestCount >= maxServedRequestCount then
+      isTerminating = true
+    end
+  end
 end
 
 function loop(fd, configtable, userservices)
-  math.randomseed(os.time())
-  -- After this number of requests, finish serving.
-  -- That will release the memory of the worker thread.
-  local maxServedRequestCount = 10000 + math.random(0, 10000)
-  local currentServedRequestCount = 0
   compilePatterns(configtable)
   
   local definedServices = {}
@@ -277,11 +307,6 @@ function loop(fd, configtable, userservices)
         end)
         clienthandler(configtable, definedServices, cfd, ip, port)
       end)
-    end
-
-    currentServedRequestCount = currentServedRequestCount + 1
-    if currentServedRequestCount >= maxServedRequestCount then
-      isTerminating = true
     end
   end
 
