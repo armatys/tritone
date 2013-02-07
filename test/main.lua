@@ -12,7 +12,9 @@ server:services {
   end
 }
 
-local std = on.GET + on.POST + { 'headers', 'cookies', 'query' }
+local std = on.GET + on.POST + { 'headers', 'cookies', 'query', 'form', 'files', 'session' }
+
+-- TODO cookie-based session
 
 on [std + { 'echo' } + '"/hello/"{ %w+ }"/"?' - 'index'] = function(name)
   -- TODO manipulating response: headers, setting cookie, status code
