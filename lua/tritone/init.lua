@@ -58,16 +58,24 @@ function Builder:__add(other)
 end
 
 function Builder:__index(k)
-  self._methods[k] = true
-  return self
-end
-
-function Builder:__newindex(k, v)
-  if type(k) == 'table' and k._builder then
-    -- freeze and store in server
-    self._server:_setroute(k, v)
+  if k == 'before' then
+    return function(fnname)
+      table.insert(self._before, fnname)
+      return self
+    end
+  elseif k == 'after' then
+    return function(fnname)
+      table.insert(self._after, fnname)
+      return self
+    end
+  elseif k == 'finally' then
+    return function(fnname)
+      table.insert(self._finally, fnname)
+      return self
+    end
   else
-    error('Invalid argument (newindex)', 2)
+    self._methods[k] = true
+    return self
   end
 end
 
@@ -98,7 +106,10 @@ end
 
 function Builder:new(server)
   local o = {}
+  o._after = {}
+  o._before = {}
   o._builder = true
+  o._finally = {}
   o._methods = {}
   o._name = ''
   o._pattern = ''
@@ -124,6 +135,41 @@ function HttpServer:new(tmpl)
   return o
 end
 
+function HttpServer:__newindex(k, v)
+  if type(k) == 'table' and k._builder then
+    -- freeze and store in server
+    self:_setroute(k, v)
+  else
+    error('Invalid argument (newindex)', 2)
+  end
+end
+
+function HttpServer:__call(arg)
+  if type(arg) ~= 'string' then
+    error('Invalid argument: url string expected', 2)
+  end
+  local server = self
+  local o = {}
+  o._url = arg
+  o._name = ''
+  function o:__call(arg)
+    if type(arg) == 'string' then
+      self._name = arg
+    else
+      error('Invalid argument', 2)
+    end
+    return self
+  end
+  function o:__newindex(k, v)
+    if type(k) ~= 'table' then
+      error('Invalid argument', 2)
+    end
+    server:_setroute(k, v, self._url, self._name)
+  end
+  setmetatable(o, o)
+  return o
+end
+
 function HttpServer:_dispatchMissingWorkers()
   local requiredWorkerCount = self._workercount - #self._workerfutures
   for i = 1, requiredWorkerCount do
@@ -142,8 +188,8 @@ function HttpServer:_dispatchWorker()
   table.insert(self._workerfutures, f)
 end
 
-function HttpServer:_setroute(builder, handler)
-  if not (builder._pattern and handler) then
+function HttpServer:_setroute(builder, handler, url, routename)
+  if not (builder and handler and url) then
     error('URL pattern or handler not specified.')
   end
 
@@ -153,10 +199,13 @@ function HttpServer:_setroute(builder, handler)
   end
 
   table.insert(self._configtable, {
+      after = builder._after,
+      before = builder._before,
       debug = self.debug,
-      pattern = builder._pattern,
+      finally = builder._finally,
+      pattern = url,
       handler = string.dump(handler),
-      name = builder._name,
+      name = routename,
       methods = builder._methods,
       services = requiredServices
     })

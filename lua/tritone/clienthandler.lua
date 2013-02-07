@@ -17,6 +17,7 @@ local pairs = pairs
 local pcall = pcall
 local print = print -- TODO remove that later
 local setfenv = setfenv
+local setmetatable = setmetatable
 local type = type
 local unpack = unpack
 
@@ -37,9 +38,9 @@ local function keepaliveHeader(httpver, keepalive)
   if keepalive and httpver == '1.1' then
     return ''
   elseif keepalive and httpver == '1.0' then
-    return 'Connection: Keep-Alive'
+    return 'Connection: Keep-Alive\r\n'
   elseif not keepalive then
-    return 'Connection: Close'
+    return 'Connection: Close\r\n'
   end
   return ''
 end
@@ -89,6 +90,19 @@ local function copyGlobals()
   return t
 end
 
+local function getflashes(cookies, response)
+  return function()
+    local reqFlashes = bencode.decode(cookies['_perun.flashes'] or 'le') or {}
+    local all = {}
+
+    for i, v in ipairs(reqFlashes) do
+      table.insert(all, {msg=v})
+    end
+
+    return all
+  end
+end
+
 local function _clienthandler(configtable, userservices, cfd, ip, port)
   local state = nil
   local shouldRead = true -- Determines if we should read from the client socket.
@@ -109,6 +123,7 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
   local shouldKeepBody = false -- 'body'
   local shouldParseFormData = false -- 'form' application/x-www-form-urlencoded
   local shouldParseMultipartFormData = false -- 'files' multipart/form-data
+  local shouldParseFlashes = false -- 'flashes'
 
   local cookies = nil
   local headers = nil
@@ -116,6 +131,7 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
   local query = nil
   local formdata = nil
   local multipartdata = nil
+  local flashes = nil
 
   local headerfieldbuf = {}
   local headervaluebuf = {}
@@ -155,6 +171,7 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
           shouldParseFormData = requiredServices['form']
           shouldParseMultipartFormData = requiredServices['files']
           shouldKeepHeaders = requiredServices['headers'] or shouldParseFormData or shouldParseMultipartFormData
+          shouldParseFlashes = requiredServices['flashes']
 
           if shouldKeepHeaders then headers = {} end
           if shouldParseCookies then cookies = {} end
@@ -200,6 +217,7 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
       if not shouldRead then return end
       body = table.concat(bodybuf, '')
       if shouldParseFormData then
+        local contentTypeHeader = headers['content-type'] or ''
         local contentTypeMatches = string.match(contentTypeHeader, 'application/x%-www%-form%-urlencoded')
         if contentTypeMatches then
           formdata = http.parseUrlEncodedQuery(body)
@@ -217,6 +235,12 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
         end
         if not multipartdata then
           multipartdata = {}
+        end
+      end
+      if shouldParseFlashes then
+        flashes = getflashes(cookies)
+        if not flashes then
+          flashes = {}
         end
       end
       stopReading('complete')
@@ -251,24 +275,67 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
     local clb = loadstring(config.handler)
     local env = copyGlobals()
     env.response = Response:new()
+    if shouldParseFlashes then env.response:delcookie('_perun.flashes') end
     if config.services.headers then env.headers = headers end
     if config.services.cookies then env.cookies = cookies end
     if config.services.query then env.query = query end
-    for k, _ in pairs(config.services) do
-      if userservices[k] then
-        env[k] = userservices[k]
+    local envmeta = {}
+    function envmeta:__index(k)
+      local fn = userservices[k]
+      if fn then
+        setfenv(fn, env)
+      end
+      return fn
+    end
+    setmetatable(env, envmeta)
+
+    local ok, err = nil, nil
+
+    -- Before functions
+    for _, fnname in ipairs(config.before) do
+      local fn = userservices[fnname]
+      if fn then
+        setfenv(fn, env)
+      end
+      ok, err = pcall(fn)
+    end
+
+    if ok then
+      setfenv(clb, env)
+      ok, err = pcall(clb, unpack(captures or {}))
+    end
+
+    if ok then
+      -- After functions
+      for _, fnname in ipairs(config.after) do
+        local fn = userservices[fnname]
+        setfenv(fn, env)
+        ok, err = pcall(fn)
       end
     end
-    setfenv(clb, env)
-    local ok, response = pcall(clb, unpack(captures or {}))
+
+    -- Finally functions
+    for _, fnname in ipairs(config.finally) do
+      local fn = userservices[fnname]
+      setfenv(fn, env)
+      ok, err = pcall(fn)
+      if not ok and config.debug then
+        response:addheader('X-Tritone-Finally-Error', err)
+      end
+    end
+
     if ok then
       local keepalive = request:shouldkeepalive() and (not isTerminating)
-      write_response(cfd, httpver, keepalive, response)
+      write_response(cfd, httpver, keepalive, env.response)
       if keepalive then
         return true
       end
+    elseif type(err) == 'table' and err.status then
+      -- Even though the handler did not complete successfully,
+      -- it raised an error with a custom response object.
+      write_response(cfd, httpver, keepalive, err)
     else
-      write_code_response(cfd, httpver, 500, config.debug and response or nil)
+      write_code_response(cfd, httpver, 500, config.debug and err or nil)
     end
   elseif type(state) == 'number' then
     write_code_response(cfd, httpver, state, body)

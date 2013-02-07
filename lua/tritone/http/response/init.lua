@@ -21,6 +21,13 @@ function M:new(o)
     return o
 end
 
+function M:__call(args)
+    self.body = args.body or self.body
+    self.headers = args.headers or self.headers
+    self.status = args.status or self.status
+    return self
+end
+
 function M:addheader(name, value)
     self.headers[name] = self.headers[name] or {}
     table.insert(self.headers[name], value)
