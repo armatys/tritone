@@ -1,4 +1,5 @@
 local anet = require 'anet'
+local bencode = require 'bencode'
 local http = require 'tritone.http'
 local hyperparser = require 'hyperparser'
 local lpeg = require 'lpeg'
@@ -126,6 +127,7 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
   local shouldParseMultipartFormData = false -- 'formdata' multipart/form-data
   local shouldParseFlashes = false -- 'flashes'
   local shouldKeepRequest = false -- 'request'
+  local shouldParseSession = false -- 'session'
 
   -- Containers for request data
   local body = nil
@@ -136,6 +138,7 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
   local headers = nil
   local query = nil
   local requestdata = nil
+  local session = nil
 
   -- Bufferes for request data
   local bodybuf = {}
@@ -171,13 +174,14 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
         if config.methods[method] then
           -- determine if headers, cookies or body need to be parsed/stored
           local requiredServices = config.services
-          shouldParseCookies = requiredServices['cookies']
+          shouldParseSession = requiredServices['session']
+          shouldParseFlashes = requiredServices['flashes']
+          shouldParseCookies = requiredServices['cookies'] or shouldParseSession or shouldParseFlashes
           shouldParseQuery = requiredServices['query']
           shouldParseFormData = requiredServices['form']
           shouldParseMultipartFormData = requiredServices['formdata']
           shouldKeepBody = requiredServices['body'] or shouldParseFormData or shouldParseMultipartFormData
           shouldKeepHeaders = requiredServices['headers'] or shouldParseFormData or shouldParseMultipartFormData
-          shouldParseFlashes = requiredServices['flashes']
           shouldKeepRequest = requiredServices['request']
 
           if shouldKeepHeaders then headers = {} end

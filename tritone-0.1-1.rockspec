@@ -20,7 +20,7 @@ dependencies = {
   "bencode >= 2.0.1",
   --"getopt >= 0.1",
   "hyperparser >= 1.0",
-  --"pbkdf2 >= 0.1",
+  "pbkdf2 >= 0.1",
   "perun >= 0.1"
 }
 
@@ -35,6 +35,7 @@ build = {
     ["tritone.http.Action"] = "lua/tritone/http/action/init.lua",
     ["tritone.http.Cookie"] = "lua/tritone/http/method/init.lua",
     ["tritone.http.Method"] = "lua/tritone/http/cookie/init.lua",
-    ["tritone.http.Response"] = "lua/tritone/http/response/init.lua"
+    ["tritone.http.Response"] = "lua/tritone/http/response/init.lua",
+    ["tritone.http.Session"] = "lua/tritone/http/session/init.lua"
   }
 }
