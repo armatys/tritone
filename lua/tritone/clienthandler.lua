@@ -123,7 +123,7 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
   local shouldParseQuery = false -- 'query'
   local shouldKeepBody = false -- 'body'
   local shouldParseFormData = false -- 'form' application/x-www-form-urlencoded
-  local shouldParseMultipartFormData = false -- 'files' multipart/form-data
+  local shouldParseMultipartFormData = false -- 'formdata' multipart/form-data
   local shouldParseFlashes = false -- 'flashes'
   local shouldKeepRequest = false -- 'request'
 
@@ -132,8 +132,8 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
   local cookies = nil
   local flashes = nil
   local formdata = nil
+  local formurlencoded = nil
   local headers = nil
-  local multipartdata = nil
   local query = nil
   local requestdata = nil
 
@@ -174,7 +174,7 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
           shouldParseCookies = requiredServices['cookies']
           shouldParseQuery = requiredServices['query']
           shouldParseFormData = requiredServices['form']
-          shouldParseMultipartFormData = requiredServices['files']
+          shouldParseMultipartFormData = requiredServices['formdata']
           shouldKeepBody = requiredServices['body'] or shouldParseFormData or shouldParseMultipartFormData
           shouldKeepHeaders = requiredServices['headers'] or shouldParseFormData or shouldParseMultipartFormData
           shouldParseFlashes = requiredServices['flashes']
@@ -230,10 +230,10 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
         local contentTypeHeader = headers['content-type'] or ''
         local contentTypeMatches = string.match(contentTypeHeader, 'application/x%-www%-form%-urlencoded')
         if contentTypeMatches then
-          formdata = http.parseUrlEncodedQuery(body)
+          formurlencoded = http.parseUrlEncodedQuery(body)
         end
-        if not formdata then
-          formdata = {}
+        if not formurlencoded then
+          formurlencoded = {}
         end
       end
       if shouldParseMultipartFormData then
@@ -241,10 +241,10 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
         local contentTypeMatches = string.match(contentTypeHeader, 'multipart/form%-data')
         local boundary = contentTypeMatches and http.getMultipartDataBoundary(contentTypeHeader)
         if contentTypeMatches and boundary then
-          multipartdata = http.parseMultipartData(boundary, body)
+          formdata = http.parseMultipartData(boundary, body)
         end
-        if not multipartdata then
-          multipartdata = {}
+        if not formdata then
+          formdata = {}
         end
       end
       if shouldParseFlashes then
@@ -286,12 +286,12 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
     if config.services.headers then env.headers = headers end
     if config.services.body then env.body = body end
     if config.services.query then env.query = query end
-    if config.services.form then env.form = formdata end
+    if config.services.form then env.form = formurlencoded end
     if config.services.request then
       env.request = requestdata
       env.request.version = httpver
     end
-    if config.services.files then env.files = multipartdata end
+    if config.services.formdata then env.formdata = formdata end
     if config.services.flashes then
       env.flashes = flashes
       env.response:delcookie('_perun.flashes')

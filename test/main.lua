@@ -17,7 +17,7 @@ server:services {
     if not user then
       --error(response{status=401, body='Not authenticated'})
       --response{status=401, body='Not authenticated'}:abort()
-      response:panic(401)
+      --response:panic(401)
     end
   end,
   customheader = function()
@@ -33,7 +33,7 @@ server:services {
 }
 
 local std = server:builder() + Method.GET + Method.POST + 
-  { 'request', 'headers', 'cookies', 'query', 'form', 'files', 'session', 'echo' } +
+  { 'request', 'headers', 'cookies', 'query', 'form', 'formdata', 'session', 'echo' } +
   Action.initially('saveStartTime') + Action.before('checklogin') +
   Action.after('customheader') + Action.finally('saybye')
 
@@ -51,7 +51,7 @@ server '"/hello/"{ %w+ }"/"?' 'hello' [std] = function(name)
   response:setheader('Content-Type', 'text/plain')
   response:setcookie{'sid', '238a0e4f'}
   response:addflash('This is a flash message.')
-  response:render('siema ' .. echo(name) .. '?' .. (query.q or '') ..  '!\n')
+  response:ok('siema ' .. echo(name) .. '?' .. (query.q or '') ..  '!\n')
 end
 
 local ok, errmsg = server:serve()
