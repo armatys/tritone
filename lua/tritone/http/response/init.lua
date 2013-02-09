@@ -81,6 +81,12 @@ function M:cookievalue(name)
     return self.headers["Set-Cookie"][n]
 end
 
+function M:created(b)
+    self.status = 201
+    self.body = b or self.body
+    error(self)
+end
+
 function M:delcookie(name)
     self.headers["Set-Cookie"] = self.headers["Set-Cookie"] or {}
     local cookie = Cookie:new{name, "_deleted", delete=true}
@@ -98,6 +104,18 @@ end
 
 function M:getbody()
     return self.body
+end
+
+function M:notfound(b)
+    self.status = 404
+    self.body = b or self.body
+    error(self)
+end
+
+function M:ok(b)
+    self.status = 200
+    self.body = b or self.body
+    error(self)
 end
 
 function M:panic(statuscode)
@@ -120,11 +138,6 @@ end
 function M:redirect(uri, code)
     self.status = code or 303
     self:setheader("Location", uri)
-    error(self)
-end
-
-function M:render(b)
-    self.body = b or self.body
     error(self)
 end
 
