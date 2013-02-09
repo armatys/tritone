@@ -1,4 +1,6 @@
 local tritone = require 'tritone'
+local Method = require 'tritone.http.Method'
+local Action = require 'tritone.http.Action'
 
 local server = tritone.HttpServer:new{debug=true}
 
@@ -20,35 +22,33 @@ server:services {
     response:setheader('X-Server-Name', 'tritone')
   end,
   saveStartTime = function()
-    response._starttime = os.time()
+    response.userdata._starttime = os.time()
   end,
   saybye = function()
     local now = os.time()
-    response:addheader('X-Processing-Time-Sec', tostring(now - response._starttime))
+    response:addheader('X-Processing-Time-Sec', tostring(now - response.userdata._starttime))
   end
 }
 
-local on = server:builder()
-local std = on.GET + on.POST + 
-  { 'headers', 'cookies', 'query', 'form', 'files', 'session', 'echo' } +
-  on.before('saveStartTime') + on.before('checklogin') + on.after('customheader') +
-  on.finally('saybye')
+local std = server:builder() + Method.GET + Method.POST + 
+  { 'request', 'headers', 'cookies', 'query', 'form', 'files', 'session', 'echo' } +
+  Action.initially('saveStartTime') + Action.before('checklogin') +
+  Action.after('customheader') + Action.finally('saybye')
 
--- TODO cookie-based session, on.before, on.after
+-- TODO cookie-based session service
 
 server '"/"' [std] = function()
   local perun = require 'perun'
   perun.sleep(1000)
-  response.body = 'This is index.\n'
+  response:redirect('/hello/mate')
+  print('Will not be printed out.')
 end
 
 server '"/hello/"{ %w+ }"/"?' 'hello' [std] = function(name)
-  -- TODO manipulating response: headers, setting cookie, status code
   response:setheader('Content-Type', 'text/plain')
   response:setcookie{'sid', '238a0e4f'}
-  response.body = 'siema ' .. echo(name) .. '?' .. (query.q or '') ..  '!\n'
   response:addflash('This is a flash message.')
-  return response
+  response:render('siema ' .. echo(name) .. '?' .. (query.q or '') ..  '!\n')
 end
 
 local ok, errmsg = server:serve()

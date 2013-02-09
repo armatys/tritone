@@ -6,8 +6,10 @@ local string = require 'string'
 local table = require 'table'
 
 local error = error
+local getmetatable = getmetatable
 local ipairs = ipairs
 local loadstring = loadstring
+local next = next
 local pairs = pairs
 local setmetatable = setmetatable
 local type = type
@@ -15,6 +17,14 @@ local log = print
 
 local _M = {}
 setfenv(1, _M)
+
+local function copytable(orig)
+  local t = {}
+  for orig_key, orig_value in next, orig, nil do
+    t[orig_key] = orig_value
+  end
+  return t
+end
 
 function enum(t)
   local o = {}
@@ -35,57 +45,56 @@ ErrorStrategy = enum {'Fail', 'Retry'}
 
 local Builder = {}
 
+local function cloneBuilder(builder)
+  local o = {}
+  o._after = copytable(builder._after)
+  o._before = copytable(builder._before)
+  o._builder = true
+  o._finally = copytable(builder._finally)
+  o._initially = copytable(builder._initially)
+  o._methods = copytable(builder._methods)
+  o._services = copytable(builder._services)
+  o._server = builder._server
+  setmetatable(o, Builder)
+  return o
+end
+
 function Builder:__add(other)
+  local clone = cloneBuilder(self)
   local otherType = type(other)
 
   if otherType == 'table' and other._builder then
     for k, v in pairs(other._methods) do
-      self._methods[string.lower(k)] = true
+      clone._methods[string.lower(k)] = v
     end
+    for k, v in ipairs(other._services) do
+      table.insert(clone._services, v)
+    end
+    for k, v in ipairs(other._after) do
+      table.insert(clone._after, v)
+    end
+    for k, v in ipairs(other._before) do
+      table.insert(clone._before, v)
+    end
+    for k, v in ipairs(other._finally) do
+      table.insert(clone._finally, v)
+    end
+    for k, v in ipairs(other._initially) do
+      table.insert(clone._initially, v)
+    end
+  elseif otherType == 'table' and other._method then
+    clone._methods[string.lower(other.name)] = true
+  elseif otherType == 'table' and other._action then
+    table.insert(clone[other._action], other.name)
   elseif otherType == 'table' then
-    -- save services
     for _, v in ipairs(other) do
-      table.insert(self._services, v)
+      table.insert(clone._services, v)
     end
-  elseif otherType == 'string' then
-    -- save url pattern
-    self._pattern = other
   else
     error('Invalid argument (add)', 2)
   end
 
-  return self
-end
-
-function Builder:__index(k)
-  if k == 'before' then
-    return function(fnname)
-      table.insert(self._before, fnname)
-      return self
-    end
-  elseif k == 'after' then
-    return function(fnname)
-      table.insert(self._after, fnname)
-      return self
-    end
-  elseif k == 'finally' then
-    return function(fnname)
-      table.insert(self._finally, fnname)
-      return self
-    end
-  else
-    self._methods[k] = true
-    return self
-  end
-end
-
-function Builder:__sub(other)
-  if type(other) == 'string' then
-    self._name = other
-  else
-    error('Invalid argument (substraction)', 2)
-  end
-  return self
+  return clone
 end
 
 function Builder:__tostring()
@@ -94,11 +103,6 @@ function Builder:__tostring()
     table.insert(buf, k)
   end
   table.insert(buf, ')')
-
-  if #self._pattern > 0 then
-    table.insert(buf, 'PATTERN:')
-    table.insert(buf, self._pattern)
-  end
 
   table.insert(buf, '>')
   return table.concat(buf, ' ')
@@ -110,9 +114,8 @@ function Builder:new(server)
   o._before = {}
   o._builder = true
   o._finally = {}
+  o._initially = {}
   o._methods = {}
-  o._name = ''
-  o._pattern = ''
   o._services = {}
   o._server = server
   setmetatable(o, self)
@@ -133,15 +136,6 @@ function HttpServer:new(tmpl)
   self.__index = self
   setmetatable(o, self)
   return o
-end
-
-function HttpServer:__newindex(k, v)
-  if type(k) == 'table' and k._builder then
-    -- freeze and store in server
-    self:_setroute(k, v)
-  else
-    error('Invalid argument (newindex)', 2)
-  end
 end
 
 function HttpServer:__call(arg)
@@ -203,6 +197,7 @@ function HttpServer:_setroute(builder, handler, url, routename)
       before = builder._before,
       debug = self.debug,
       finally = builder._finally,
+      initially = builder._initially,
       pattern = url,
       handler = string.dump(handler),
       name = routename,

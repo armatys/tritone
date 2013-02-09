@@ -106,6 +106,7 @@ end
 local function _clienthandler(configtable, userservices, cfd, ip, port)
   local state = nil
   local shouldRead = true -- Determines if we should read from the client socket.
+  local responseError --
 
   local function stopReading(s)
     shouldRead = false
@@ -113,8 +114,8 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
   end
 
   local captures = nil -- a table with captured values (may be empty)
-  local method = nil -- parsed method name, e.g. 'GET' or 'POST'
-  local config = nil -- {pattern=, handler=, name=?, methods=?}
+  local method = nil -- parsed method name, e.g. 'get' or 'post'
+  local config = nil -- {pattern=, handler=, name=?, methods=?} (see HttpServer:_setroute for more fileds)
 
   -- Each one of the 'should*' variables corrensponds to a service.
   local shouldKeepHeaders = false -- 'headers'
@@ -124,18 +125,22 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
   local shouldParseFormData = false -- 'form' application/x-www-form-urlencoded
   local shouldParseMultipartFormData = false -- 'files' multipart/form-data
   local shouldParseFlashes = false -- 'flashes'
+  local shouldKeepRequest = false -- 'request'
 
-  local cookies = nil
-  local headers = nil
+  -- Containers for request data
   local body = nil
-  local query = nil
-  local formdata = nil
-  local multipartdata = nil
+  local cookies = nil
   local flashes = nil
+  local formdata = nil
+  local headers = nil
+  local multipartdata = nil
+  local query = nil
+  local requestdata = nil
 
+  -- Bufferes for request data
+  local bodybuf = {}
   local headerfieldbuf = {}
   local headervaluebuf = {}
-  local bodybuf = {}
 
   local function putHeader(k, v)
     headers[k] = headers[k] or {}
@@ -170,13 +175,18 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
           shouldParseQuery = requiredServices['query']
           shouldParseFormData = requiredServices['form']
           shouldParseMultipartFormData = requiredServices['files']
+          shouldKeepBody = requiredServices['body'] or shouldParseFormData or shouldParseMultipartFormData
           shouldKeepHeaders = requiredServices['headers'] or shouldParseFormData or shouldParseMultipartFormData
           shouldParseFlashes = requiredServices['flashes']
+          shouldKeepRequest = requiredServices['request']
 
           if shouldKeepHeaders then headers = {} end
           if shouldParseCookies then cookies = {} end
           if shouldParseQuery then
             query = http.parseUrlEncodedQuery(parsed.query)
+          end
+          if shouldKeepRequest then
+            requestdata = { method=method, path=parsed.path }
           end
         else
           stopReading(405)
@@ -257,7 +267,7 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
       if request:isupgrade() then
         stopReading(501)
       elseif nparsed ~= nread then
-        body = 'Cannot parse the request.'
+        responseError = 'Cannot parse the request.'
         stopReading(500)
       end
     else -- EOF
@@ -275,10 +285,23 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
     local clb = loadstring(config.handler)
     local env = copyGlobals()
     env.response = Response:new()
-    if shouldParseFlashes then env.response:delcookie('_perun.flashes') end
-    if config.services.headers then env.headers = headers end
+
+    -- Fill in built-in services
     if config.services.cookies then env.cookies = cookies end
+    if config.services.headers then env.headers = headers end
+    if config.services.body then env.body = body end
     if config.services.query then env.query = query end
+    if config.services.form then env.form = formdata end
+    if config.services.request then
+      env.request = requestdata
+      env.request.version = httpver
+    end
+    if config.services.files then env.files = multipartdata end
+    if config.services.flashes then
+      env.flashes = flashes
+      env.response:delcookie('_perun.flashes')
+    end
+    
     local envmeta = {}
     function envmeta:__index(k)
       local fn = userservices[k]
@@ -289,38 +312,68 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
     end
     setmetatable(env, envmeta)
 
-    local ok, err = nil, nil
+    local ok, err = true, nil
+
+    -- Initially functions
+    for _, fnname in ipairs(config.initially) do
+      local fn = userservices[fnname]
+
+      if fn then
+        setfenv(fn, env)
+        local ok, err = pcall(fn, unpack(captures or {}))
+        if not ok and config.debug then
+          env.response:addheader('X-Tritone-Initially-Error', err)
+        end
+      else
+        error(string.format('No service with name "%s" was found', fnname))
+      end
+    end
 
     -- Before functions
     for _, fnname in ipairs(config.before) do
       local fn = userservices[fnname]
       if fn then
         setfenv(fn, env)
+        ok, err = pcall(fn, unpack(captures or {}))
+        ok = (type(err) == 'table' and err._response) or err or true
+      else
+        error(string.format('No service with name "%s" was found', fnname))
       end
-      ok, err = pcall(fn)
     end
 
+    -- Handler
     if ok then
       setfenv(clb, env)
       ok, err = pcall(clb, unpack(captures or {}))
+      ok = (type(err) == 'table' and err._response) or err or true
     end
 
     if ok then
       -- After functions
       for _, fnname in ipairs(config.after) do
         local fn = userservices[fnname]
-        setfenv(fn, env)
-        ok, err = pcall(fn)
+        if fn then
+          setfenv(fn, env)
+          ok, err = pcall(fn, unpack(captures or {}))
+          ok = (type(err) == 'table' and err._response) or err or true
+        else
+          error(string.format('No service with name "%s" was found', fnname))
+        end
       end
     end
 
     -- Finally functions
     for _, fnname in ipairs(config.finally) do
       local fn = userservices[fnname]
-      setfenv(fn, env)
-      ok, err = pcall(fn)
-      if not ok and config.debug then
-        response:addheader('X-Tritone-Finally-Error', err)
+
+      if fn then
+        setfenv(fn, env)
+        local ok, err = pcall(fn, unpack(captures or {}))
+        if not ok and config.debug then
+          env.response:addheader('X-Tritone-Finally-Error', err)
+        end
+      else
+        error(string.format('No service with name "%s" was found', fnname))
       end
     end
 
@@ -330,15 +383,11 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
       if keepalive then
         return true
       end
-    elseif type(err) == 'table' and err.status then
-      -- Even though the handler did not complete successfully,
-      -- it raised an error with a custom response object.
-      write_response(cfd, httpver, keepalive, err)
     else
       write_code_response(cfd, httpver, 500, config.debug and err or nil)
     end
   elseif type(state) == 'number' then
-    write_code_response(cfd, httpver, state, body)
+    write_code_response(cfd, httpver, state, responseError)
   end
 
   anet.close(cfd)
