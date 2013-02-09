@@ -1,3 +1,4 @@
+local Cookie = require 'tritone.http.Cookie'
 local string = require "string"
 local table = require "table"
 local ipairs = ipairs
@@ -110,7 +111,7 @@ function parseCookieHeader(data, cookies)
   while true do
     local name, value, rest = string.match(data, regexp)
     if name then
-      cookies[name] = value
+      cookies[name] = Cookie:new(name, value)
       data = rest
     else
       break

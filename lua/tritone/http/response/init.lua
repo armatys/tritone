@@ -157,6 +157,11 @@ function M:setcookie(paramsOrName, maybeValue)
     return self
 end
 
+function M:setsignedcookie(params)
+    params.signed = true
+    return self:setcookie(params)
+end
+
 function M:setheader(name, value)
     self.headers[name] = {}
     table.insert(self.headers[name], value)

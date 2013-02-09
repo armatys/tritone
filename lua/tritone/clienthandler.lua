@@ -93,7 +93,7 @@ end
 
 local function getflashes(cookies, response)
   return function()
-    local reqFlashes = bencode.decode(cookies['_perun.flashes'] or 'le') or {}
+    local reqFlashes = bencode.decode(cookies['_tritone.flashes'] or 'le') or {}
     local all = {}
 
     for i, v in ipairs(reqFlashes) do
@@ -127,7 +127,6 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
   local shouldParseMultipartFormData = false -- 'formdata' multipart/form-data
   local shouldParseFlashes = false -- 'flashes'
   local shouldKeepRequest = false -- 'request'
-  local shouldParseSession = false -- 'session'
 
   -- Containers for request data
   local body = nil
@@ -138,7 +137,6 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
   local headers = nil
   local query = nil
   local requestdata = nil
-  local session = nil
 
   -- Bufferes for request data
   local bodybuf = {}
@@ -174,14 +172,13 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
         if config.methods[method] then
           -- determine if headers, cookies or body need to be parsed/stored
           local requiredServices = config.services
-          shouldParseSession = requiredServices['session']
           shouldParseFlashes = requiredServices['flashes']
-          shouldParseCookies = requiredServices['cookies'] or shouldParseSession or shouldParseFlashes
+          shouldParseCookies = requiredServices['cookies'] or shouldParseFlashes
           shouldParseQuery = requiredServices['query']
           shouldParseFormData = requiredServices['form']
           shouldParseMultipartFormData = requiredServices['formdata']
           shouldKeepBody = requiredServices['body'] or shouldParseFormData or shouldParseMultipartFormData
-          shouldKeepHeaders = requiredServices['headers'] or shouldParseFormData or shouldParseMultipartFormData
+          shouldKeepHeaders = requiredServices['headers'] or shouldParseFormData or shouldParseMultipartFormData or shouldParseCookies
           shouldKeepRequest = requiredServices['request']
 
           if shouldKeepHeaders then headers = {} end
@@ -298,7 +295,7 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
     if config.services.formdata then env.formdata = formdata end
     if config.services.flashes then
       env.flashes = flashes
-      env.response:delcookie('_perun.flashes')
+      env.response:delcookie('_tritone.flashes')
     end
     
     local envmeta = {}

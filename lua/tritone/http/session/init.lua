@@ -42,6 +42,7 @@ function M:decode(sessionCookieValueString)
   local _, hexout = M.encode({ _data = cookieValueObj.da, _expiration = cookieValueObj.ex}, cookieValueObj.sa)
   if hexout == cookieValueObj.ou then
     self._data = cookieValueObj.da
+    self._expiration = cookieValueObj.ex
     return true
   end
 

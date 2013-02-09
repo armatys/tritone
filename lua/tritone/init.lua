@@ -124,15 +124,16 @@ end
 
 HttpServer = {}
 
-function HttpServer:new(tmpl)
-  local o = tmpl or {}
-  o._configtable = {}
+function HttpServer:new(conf)
+  local o = {}
+  o._configtable = { _cookiesecret = conf.cookiesecret }
   o._errorstragety = ErrorStrategy.Retry
   o._fd = 0 -- server listening socket
   o._isrunning = false
   o._userservices = {}
   o._workercount = 1
   o._workerfutures = {}
+  o.debug = conf.debug
   self.__index = self
   setmetatable(o, self)
   return o
