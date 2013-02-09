@@ -34,6 +34,7 @@ end
 
 function M:new(o)
     o = o or {}
+    o._panic = false
     o._response = true
     o.body = o.body or nil
     o.headers = o.headers or {}
@@ -46,7 +47,7 @@ function M:new(o)
 end
 
 function M:abort(statuscode)
-    self.status = statuscode
+    self.status = statuscode or self.status
     error(self)
 end
 
@@ -56,18 +57,22 @@ function M:addflash(msg)
         flashes = "le"
     end
     self:setcookie("_tritone.flashes", string.format("l%s%d:%se", string.sub(flashes, 2, -2), #msg, msg))
+    return self
 end
 
 function M:addheader(name, value)
     self.headers[name] = self.headers[name] or {}
     table.insert(self.headers[name], value)
+    return self
 end
 
 function M:clear()
+    o._panic = false
     o.body = nil
     o.headers = {}
     o.status = 200
     o.userdata = {}
+    return self
 end
 
 function M:cookievalue(name)
@@ -81,16 +86,24 @@ function M:delcookie(name)
     local cookie = Cookie:new{name, "_deleted", delete=true}
     local n = self:_findCookieIndex(name)
     self.headers["Set-Cookie"][n] = tostring(cookie)
+    return self
 end
 
 function M:delqueuedflashes()
     local n = self:_findCookieIndex("_tritone.flashes")
     self.headers["Set-Cookie"] = self.headers["Set-Cookie"] or {}
     self.headers["Set-Cookie"][n] = nil
+    return self
 end
 
 function M:getbody()
     return self.body
+end
+
+function M:panic(statuscode)
+    self.status = statuscode or self.status
+    self._panic = true
+    error(self)
 end
 
 function M:queuedflashes()
@@ -128,11 +141,13 @@ function M:setcookie(paramsOrName, maybeValue)
     local cookie = Cookie:new(params)
     local n = self:_findCookieIndex(params[1])
     self.headers["Set-Cookie"][n] = tostring(cookie)
+    return self
 end
 
 function M:setheader(name, value)
     self.headers[name] = {}
     table.insert(self.headers[name], value)
+    return self
 end
 
 return M

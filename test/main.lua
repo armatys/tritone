@@ -11,11 +11,13 @@ server:services {
   echo = function(s)
     return s .. s
   end,
-  checklogin = function(matched, url, params, here)
+  checklogin = function()
     -- The environment of this function would contain all the requested services
     -- or all requested built-in services?
     if not user then
       --error(response{status=401, body='Not authenticated'})
+      --response{status=401, body='Not authenticated'}:abort()
+      response:panic(401)
     end
   end,
   customheader = function()
@@ -38,6 +40,7 @@ local std = server:builder() + Method.GET + Method.POST +
 -- TODO cookie-based session service
 
 server '"/"' [std] = function()
+  print 'index'
   local perun = require 'perun'
   perun.sleep(1000)
   response:redirect('/hello/mate')

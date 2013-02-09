@@ -275,13 +275,8 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
     end
   end
 
-  -- TODO split the method here
   if state == 'complete' then
     httpver = request:httpmajor() .. '.' .. request:httpminor()
-    -- TODO create a handler function
-    -- by setting a proper func env
-    -- then run the handler for as long as it returns true?
-    -- run the function using pcall? and return 500 in case of error?
     local clb = loadstring(config.handler)
     local env = copyGlobals()
     env.response = Response:new()
@@ -335,7 +330,7 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
       if fn then
         setfenv(fn, env)
         ok, err = pcall(fn, unpack(captures or {}))
-        ok = (type(err) == 'table' and err._response) or err or true
+        ok = (type(err) == 'table' and err._response and not err._panic) or ok
       else
         error(string.format('No service with name "%s" was found', fnname))
       end
@@ -345,7 +340,7 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
     if ok then
       setfenv(clb, env)
       ok, err = pcall(clb, unpack(captures or {}))
-      ok = (type(err) == 'table' and err._response) or err or true
+      ok = (type(err) == 'table' and err._response and not err._panic) or ok
     end
 
     if ok then
@@ -355,7 +350,7 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
         if fn then
           setfenv(fn, env)
           ok, err = pcall(fn, unpack(captures or {}))
-          ok = (type(err) == 'table' and err._response) or err or true
+          ok = (type(err) == 'table' and err._response and not err._panic) or ok
         else
           error(string.format('No service with name "%s" was found', fnname))
         end
@@ -383,6 +378,8 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
       if keepalive then
         return true
       end
+    elseif not ok and type(err) == 'table' and err._response then
+      write_response(cfd, httpver, false, err)
     else
       write_code_response(cfd, httpver, 500, config.debug and err or nil)
     end
