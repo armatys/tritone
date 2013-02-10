@@ -7,6 +7,7 @@ local pairs = pairs
 local setmetatable = setmetatable
 local tostring = tostring
 local type = type
+local print = print
 
 local M = {}
 
@@ -23,13 +24,13 @@ function M:_findCookieIndex(name)
 
     self.headers["Set-Cookie"] = self.headers["Set-Cookie"] or {}
     for i, v in pairs(self.headers["Set-Cookie"]) do
-        if string.match(v, patt) then
+        if v._cookie and string.match(v:name(), patt) then
             n = i
             break
         end
     end
 
-    return (n == 0) and #self.headers["Set-Cookie"] + 1 or n
+    return (n == 0) and (#self.headers["Set-Cookie"] + 1) or n
 end
 
 function M:new(o)
@@ -52,11 +53,15 @@ function M:abort(statuscode)
 end
 
 function M:addflash(msg)
-    local flashes = self:cookievalue("_tritone.flashes") or "le"
+    local cookieName = '_tritone.flashes'
+    local cookie = self:getcookie(cookieName) or Cookie:new{cookieName, 'le'}
+    local flashes = cookie:value()
     if string.sub(flashes, 1, 1) ~= "l" then
         flashes = "le"
     end
-    self:setcookie("_tritone.flashes", string.format("l%s%d:%se", string.sub(flashes, 2, -2), #msg, msg))
+    cookie:setvalue(string.format("l%s%d:%se", string.sub(flashes, 2, -2), #msg, msg))
+    local idx = self:_findCookieIndex(cookieName)
+    self.headers["Set-Cookie"][idx] = cookie
     return self
 end
 
@@ -75,7 +80,7 @@ function M:clear()
     return self
 end
 
-function M:cookievalue(name)
+function M:getcookie(name)
     local n = self:_findCookieIndex(name)
     self.headers["Set-Cookie"] = self.headers["Set-Cookie"] or {}
     return self.headers["Set-Cookie"][n]
@@ -126,10 +131,10 @@ end
 
 function M:queuedflashes()
     local f = {}
-    local val = self:cookievalue("_tritone.flashes")
+    local cookie = self:getcookie("_tritone.flashes")
 
-    if val then
-        f = bencode.decode(val)
+    if cookie then
+        f = bencode.decode(cookie:value())
     end
 
     return f
@@ -141,25 +146,15 @@ function M:redirect(uri, code)
     error(self)
 end
 
-function M:setcookie(paramsOrName, maybeValue)
-    self.headers["Set-Cookie"] = self.headers["Set-Cookie"] or {}
-    local params
-
-    if type(paramsOrName) == "string" then
-        params = {paramsOrName, maybeValue}
-    else
-        params = paramsOrName
+function M:setcookie(cookieparams)
+    if cookieparams.signed then
+        cookieparams.salt = self.cookiesecret
     end
-
-    local cookie = Cookie:new(params)
-    local n = self:_findCookieIndex(params[1])
-    self.headers["Set-Cookie"][n] = tostring(cookie)
+    local cookie = Cookie:new(cookieparams)
+    self.headers["Set-Cookie"] = self.headers["Set-Cookie"] or {}
+    local n = self:_findCookieIndex(cookie:name())
+    self.headers["Set-Cookie"][n] = cookie
     return self
-end
-
-function M:setsignedcookie(params)
-    params.signed = true
-    return self:setcookie(params)
 end
 
 function M:setheader(name, value)

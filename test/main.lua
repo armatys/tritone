@@ -1,8 +1,11 @@
 local tritone = require 'tritone'
-local Method = require 'tritone.http.Method'
 local Action = require 'tritone.http.Action'
+local Method = require 'tritone.http.Method'
 
-local server = tritone.HttpServer:new{debug=true}
+local server = tritone.HttpServer:new {
+  cookiesecret = 'm213kr98dsj9493wd',
+  debug = true
+}
 
 -- as each function will be serialized,
 -- they must not contain any upvalues
@@ -37,10 +40,7 @@ local std = server:builder() + Method.GET + Method.POST +
   Action.initially('saveStartTime') + Action.before('checklogin') +
   Action.after('customheader') + Action.finally('saybye')
 
--- TODO cookie-based session service
-
 server '"/"' [std] = function()
-  print 'index'
   local perun = require 'perun'
   perun.sleep(1000)
   response:redirect('/hello/mate')
@@ -50,6 +50,7 @@ end
 server '"/hello/"{ %w+ }"/"?' 'hello' [std] = function(name)
   response:setheader('Content-Type', 'text/plain')
   response:setcookie{'sid', '238a0e4f'}
+  response:setcookie{'user', 'mako', signed=true, maxage=60*60}
   response:addflash('This is a flash message.')
   response:ok('siema ' .. echo(name) .. '?' .. (query.q or '') ..  '!\n')
 end

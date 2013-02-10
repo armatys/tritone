@@ -1,5 +1,6 @@
 local anet = require 'anet'
 local bencode = require 'bencode'
+local Cookie = require 'tritone.http.Cookie'
 local http = require 'tritone.http'
 local hyperparser = require 'hyperparser'
 local lpeg = require 'lpeg'
@@ -208,7 +209,7 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
         end
 
         if cookiePatt:match(key) then
-          cookies = http.parseCookieHeader(val, cookies)
+          cookies = Cookie.parseCookieHeader(val, cookies, configtable._cookiesecret)
         end
         headerfieldbuf = {}
         headervaluebuf = {}
@@ -280,7 +281,7 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
     httpver = request:httpmajor() .. '.' .. request:httpminor()
     local clb = loadstring(config.handler)
     local env = copyGlobals()
-    env.response = Response:new()
+    env.response = Response:new{cookiesecret=configtable._cookiesecret}
 
     -- Fill in built-in services
     if config.services.cookies then env.cookies = cookies end

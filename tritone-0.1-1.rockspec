@@ -33,8 +33,8 @@ build = {
     tritone = "lua/tritone/init.lua",
     ["tritone.http"] = "lua/tritone/http/init.lua",
     ["tritone.http.Action"] = "lua/tritone/http/action/init.lua",
-    ["tritone.http.Cookie"] = "lua/tritone/http/method/init.lua",
-    ["tritone.http.Method"] = "lua/tritone/http/cookie/init.lua",
+    ["tritone.http.Cookie"] = "lua/tritone/http/cookie/init.lua",
+    ["tritone.http.Method"] = "lua/tritone/http/method/init.lua",
     ["tritone.http.Response"] = "lua/tritone/http/response/init.lua"
   }
 }

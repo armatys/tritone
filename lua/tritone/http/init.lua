@@ -1,9 +1,9 @@
-local Cookie = require 'tritone.http.Cookie'
 local string = require "string"
 local table = require "table"
 local ipairs = ipairs
 local pairs = pairs
 local tonumber = tonumber
+local tostring = tostring
 local type = type
 
 local _M = {}
@@ -73,13 +73,13 @@ function dumpHeaders(htable)
       for _, m in ipairs(v) do
         table.insert(hbuf, k)
         table.insert(hbuf, ": ")
-        table.insert(hbuf, m)
+        table.insert(hbuf, tostring(m))
         table.insert(hbuf, "\r\n")
       end
     else
       table.insert(hbuf, k)
       table.insert(hbuf, ": ")
-      table.insert(hbuf, v)
+      table.insert(hbuf, tostring(v))
       table.insert(hbuf, "\r\n")
     end
   end
@@ -102,23 +102,6 @@ function urlEncode(str)
     str = string.gsub(str, " ", "+")
   end
   return str  
-end
-
-function parseCookieHeader(data, cookies)
-  local regexp = '^([^=]+)="?([^";]*)"?;?%s?(.*)$'
-  cookies = cookies or {}
-
-  while true do
-    local name, value, rest = string.match(data, regexp)
-    if name then
-      cookies[name] = Cookie:new(name, value)
-      data = rest
-    else
-      break
-    end
-  end
-
-  return cookies
 end
 
 function parseUrlEncodedQuery(data)

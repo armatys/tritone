@@ -126,12 +126,15 @@ HttpServer = {}
 
 function HttpServer:new(conf)
   local o = {}
+  if not (conf.cookiesecret and type(conf.cookiesecret) == 'string') then
+    error('The "cookiesecret" parameter has to be specified.', 2)
+  end
   o._configtable = { _cookiesecret = conf.cookiesecret }
   o._errorstragety = ErrorStrategy.Retry
   o._fd = 0 -- server listening socket
   o._isrunning = false
   o._userservices = {}
-  o._workercount = 1
+  o._workercount = 2
   o._workerfutures = {}
   o.debug = conf.debug
   self.__index = self
