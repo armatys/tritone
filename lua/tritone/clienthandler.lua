@@ -144,9 +144,21 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
   local headerfieldbuf = {}
   local headervaluebuf = {}
 
-  local function putHeader(k, v)
-    headers[k] = headers[k] or {}
-    table.insert(headers[k], v)
+  local function putHeader()
+    local key = table.concat(headerfieldbuf, '')
+    local val = table.concat(headervaluebuf, '')
+    if shouldKeepHeaders then
+      key = string.lower(key)
+      headers[key] = headers[key] or {}
+      table.insert(headers[key], val)
+    end
+
+    if cookiePatt:match(key) then
+      -- TODO multiple Cookie headers?
+      cookies = Cookie.parseCookieHeader(val, cookies, configtable._cookiesecret)
+    end
+    headerfieldbuf = {}
+    headervaluebuf = {}
   end
 
   local request = hyperparser.request()
@@ -202,17 +214,7 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
       if not (shouldKeepHeaders or shouldParseCookies) then return end
 
       if #headerfieldbuf > 0 then
-        local key = table.concat(headerfieldbuf, '')
-        local val = table.concat(headervaluebuf, '')
-        if shouldKeepHeaders then
-          putHeader(string.lower(key), val)
-        end
-
-        if cookiePatt:match(key) then
-          cookies = Cookie.parseCookieHeader(val, cookies, configtable._cookiesecret)
-        end
-        headerfieldbuf = {}
-        headervaluebuf = {}
+        putHeader()
       end
       table.insert(headerfieldbuf, value)
     end, 
@@ -227,9 +229,12 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
     end,
     msgcomplete = function()
       if not shouldRead then return end
+      if #headerfieldbuf > 0 then
+        putHeader()
+      end
       body = table.concat(bodybuf, '')
       if shouldParseFormData then
-        local contentTypeHeader = headers['content-type'] or ''
+        local contentTypeHeader = headers['content-type'] and headers['content-type'][1] or ''
         local contentTypeMatches = string.match(contentTypeHeader, 'application/x%-www%-form%-urlencoded')
         if contentTypeMatches then
           formurlencoded = http.parseUrlEncodedQuery(body)
@@ -239,7 +244,7 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
         end
       end
       if shouldParseMultipartFormData then
-        local contentTypeHeader = headers['content-type'] or ''
+        local contentTypeHeader = headers['content-type'] and headers['content-type'][1] or ''
         local contentTypeMatches = string.match(contentTypeHeader, 'multipart/form%-data')
         local boundary = contentTypeMatches and http.getMultipartDataBoundary(contentTypeHeader)
         if contentTypeMatches and boundary then
