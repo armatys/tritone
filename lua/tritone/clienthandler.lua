@@ -407,7 +407,10 @@ function loop(fd, configtable, userservices)
   
   local definedServices = {}
   for k, v in pairs(userservices) do
-    definedServices[k] = loadstring(v)
+    local fn = loadstring(v)
+    if type(fn) == 'function' then
+      definedServices[k] = fn()
+    end
   end
 
   while not isTerminating do

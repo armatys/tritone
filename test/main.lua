@@ -11,27 +11,37 @@ local server = tritone.HttpServer:new {
 -- they must not contain any upvalues
 
 server:services {
-  echo = function(s)
-    return s .. s
+  echo = function()
+    return function(s)
+      return s .. s
+    end
   end,
   checklogin = function()
-    -- The environment of this function would contain all the requested services
-    -- or all requested built-in services?
-    if not user then
-      --error(response{status=401, body='Not authenticated'})
-      --response{status=401, body='Not authenticated'}:abort()
-      --response:panic(401)
+    return function()
+      -- The environment of this function would contain all the requested services
+      -- or all requested built-in services?
+      if not user then
+        --error(response{status=401, body='Not authenticated'})
+        --response{status=401, body='Not authenticated'}:abort()
+        --response:panic(401)
+      end
     end
   end,
   customheader = function()
-    response:setheader('X-Server-Name', 'tritone')
+    return function()
+      response:setheader('X-Server-Name', 'tritone')
+    end
   end,
   saveStartTime = function()
-    response.userdata._starttime = os.time()
+    return function()
+      response.userdata._starttime = os.time()
+    end
   end,
   saybye = function()
-    local now = os.time()
-    response:addheader('X-Processing-Time-Sec', tostring(now - response.userdata._starttime))
+    return function()
+      local now = os.time()
+      response:addheader('X-Processing-Time-Sec', tostring(now - response.userdata._starttime))
+    end
   end
 }
 
