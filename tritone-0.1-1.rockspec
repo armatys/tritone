@@ -20,6 +20,7 @@ dependencies = {
   "bencode >= 2.0.1",
   --"getopt >= 0.1",
   "hyperparser >= 1.0",
+  "lpeg >= 0.10",
   "pbkdf2 >= 0.1",
   "perun >= 0.1"
 }

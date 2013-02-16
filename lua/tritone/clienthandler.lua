@@ -31,7 +31,8 @@ setfenv(1, _M)
 math.randomseed(os.time())
 -- After this number of requests, finish serving.
 -- That will release the memory of the worker thread.
-local maxServedRequestCount = 10000 + math.random(0, 10000)
+local minServedRequestCount = 1000
+local maxServedRequestCount = minServedRequestCount + math.random(0, minServedRequestCount)
 local currentServedRequestCount = 0
 local isTerminating = false
 local cookiePatt = lpeg.S'Cc' * lpeg.P'ookie'
@@ -399,10 +400,13 @@ local function _clienthandler(configtable, userservices, cfd, ip, port)
 end
 
 local function clienthandler(configtable, userservices, cfd, ip, port)
-  while _clienthandler(configtable, userservices, cfd, ip, port) do
+  local shouldContinue = true
+  while shouldContinue do
+    shouldContinue = _clienthandler(configtable, userservices, cfd, ip, port)
     currentServedRequestCount = currentServedRequestCount + 1
     if currentServedRequestCount >= maxServedRequestCount then
       isTerminating = true
+      shouldContinue = false
     end
   end
 end
@@ -432,7 +436,6 @@ function loop(fd, configtable, userservices)
       end)
     end
   end
-
   perun.stop()
 end
 
